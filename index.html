@@ -93,7 +93,7 @@
         <button id="calcBtn"> Рассчитать зону доставки</button>
 
         <div class="examples">
-            <div style="font-size:0.8rem; margin-bottom:8px;">📋 5 примеров для Ярославля:</div>
+            <div style="font-size:0.8rem; margin-bottom:8px;"> 5 примеров для Ярославля:</div>
             <button class="example-btn" data-address="ул. Кирова, 5" data-minutes="10">1️⃣ ул. Кирова, 5 (10 мин)</button>
             <button class="example-btn" data-address="пр-т Ленина, 27" data-minutes="15">2️⃣ пр-т Ленина, 27 (15 мин)</button>
             <button class="example-btn" data-address="ул. Свободы, 46" data-minutes="20">3️⃣ ул. Свободы, 46 (20 мин)</button>
@@ -102,7 +102,7 @@
         </div>
 
         <div id="result" class="result-info">
-            <div style="text-align:center; opacity:0.7;">⬅️ Введите адрес и нажмите рассчитать</div>
+            <div style="text-align:center; opacity:0.7;"> Введите адрес и нажмите рассчитать</div>
         </div>
     </div>
     <div id="map"></div>
@@ -115,7 +115,7 @@
     
     let isCalculating = false;
     
-    // ========== ГЕОХЕШ ==========
+    // ГЕОХЕШ
     function computeGeohash(lat, lon, precision = 9) {
         const BASE32 = "0123456789bcdefghjkmnpqrstuvwxyz";
         let bits = 0, bitsTotal = 0, hashValue = 0, hash = "";
@@ -152,7 +152,7 @@
         return hash;
     }
     
-    // ========== ГЕОКОДИРОВАНИЕ ==========
+    // ГЕОКОДИРОВАНИЕ
     async function geocodeAddress(address) {
         const fullAddress = `Ярославль, ${address}`;
         const params = new URLSearchParams({
@@ -186,9 +186,9 @@
         };
     }
     
-    // ========== ПАРСЕР WKT в массив координат ==========
+    // ПАРСЕР WKT в массив координат
     function parseWKTtoLatLngs(wkt) {
-        // Ищем содержимое между первыми (( и ))
+        
         const match = wkt.match(/\(\(([^()]+)\)\)/);
         if (!match) return [];
         
@@ -211,7 +211,7 @@
         return coords;
     }
     
-    // ========== ИЗОХРОНА (2ГИС) ==========
+    // ИЗОХРОНА (2ГИС)
     async function getIsochrone(lat, lon, minutes, retryCount = 0) {
         const durationSeconds = minutes * 60;
         
@@ -229,7 +229,7 @@
             body: JSON.stringify(payload)
         });
         
-        // Обработка ошибки 429 (Too Many Requests)
+        
         if (response.status === 429 && retryCount < 3) {
             const waitTime = (retryCount + 1) * 2000;
             console.log(`Превышен лимит, повтор через ${waitTime/1000} сек...`);
@@ -258,7 +258,7 @@
         throw new Error('Не удалось построить изохрону');
     }
     
-    // ========== КАРТА ==========
+    // КАРТА
     const map = L.map('map').setView([57.626, 39.893], 13);
     L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
         attribution: '&copy; OSM | 2ГИС'
@@ -296,7 +296,7 @@
             if (currentMarker) map.removeLayer(currentMarker);
             
             currentMarker = L.marker([location.lat, location.lon])
-                .bindPopup(`<b>🍕 ${location.displayName}</b><br> ${minutes} мин<br> ${geohashValue}`)
+                .bindPopup(`<b> ${location.displayName}</b><br> ${minutes} мин<br> ${geohashValue}`)
                 .addTo(map);
             
             const latlngs = isochrone.coordinates[0];
