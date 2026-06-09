@@ -1,0 +1,347 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <title>Зона доставки | Ярославль | 2ГИС</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Segoe UI', sans-serif; }
+        .container { display: flex; height: 100vh; }
+        .sidebar {
+            width: 340px;
+            background: #1a252f;
+            color: white;
+            padding: 20px;
+            overflow-y: auto;
+            box-shadow: 2px 0 10px rgba(0,0,0,0.3);
+            z-index: 10;
+        }
+        .sidebar h1 { font-size: 1.5rem; color: #e67e22; margin-bottom: 5px; }
+        .sidebar p { font-size: 0.8rem; opacity: 0.8; margin-bottom: 20px; }
+        .input-group { margin-bottom: 15px; }
+        label { display: block; margin-bottom: 5px; font-weight: bold; font-size: 0.85rem; }
+        input, select {
+            width: 100%;
+            padding: 8px 10px;
+            border: none;
+            border-radius: 6px;
+            font-size: 0.9rem;
+            background: #2c3e50;
+            color: white;
+        }
+        button {
+            width: 100%;
+            padding: 10px;
+            background: #e67e22;
+            color: white;
+            border: none;
+            border-radius: 6px;
+            font-size: 1rem;
+            font-weight: bold;
+            cursor: pointer;
+            margin-top: 5px;
+        }
+        button:hover { background: #d35400; }
+        button:disabled { background: #7f8c8d; cursor: not-allowed; }
+        .result-info {
+            margin-top: 20px;
+            padding: 12px;
+            background: #0f171e;
+            border-radius: 8px;
+            font-size: 0.8rem;
+            border-left: 3px solid #e67e22;
+        }
+        .error { color: #e74c3c; }
+        .success { color: #2ecc71; }
+        .examples { margin-top: 20px; border-top: 1px solid #2c3e50; padding-top: 15px; }
+        .example-btn {
+            background: #2980b9;
+            margin-top: 6px;
+            font-size: 0.75rem;
+            padding: 7px;
+        }
+        .example-btn:hover { background: #1c5980; }
+        hr { border-color: #2c3e50; margin: 10px 0; }
+        .geohash-badge { font-family: monospace; background: #00000055; padding: 2px 6px; border-radius: 4px; }
+        #map { flex: 1; }
+    </style>
+</head>
+<body>
+<div class="container">
+    <div class="sidebar">
+        <h1> Пеший курьер <small>Ярославль</small></h1>
+        <p>Рассчёт зоны доставки от ресторана за указанное время</p>
+
+        <div class="input-group">
+            <label> Адрес ресторана</label>
+            <input type="text" id="address" placeholder="например: ул. Кирова, 5" value="ул. Кирова, 5">
+        </div>
+
+        <div class="input-group">
+            <label> Время доставки (минут)</label>
+            <select id="minutes">
+                <option value="5">5 минут</option>
+                <option value="10" selected>10 минут</option>
+                <option value="15">15 минут</option>
+                <option value="20">20 минут</option>
+                <option value="30">30 минут</option>
+            </select>
+        </div>
+
+        <button id="calcBtn"> Рассчитать зону доставки</button>
+
+        <div class="examples">
+            <div style="font-size:0.8rem; margin-bottom:8px;">📋 5 примеров для Ярославля:</div>
+            <button class="example-btn" data-address="ул. Кирова, 5" data-minutes="10">1️⃣ ул. Кирова, 5 (10 мин)</button>
+            <button class="example-btn" data-address="пр-т Ленина, 27" data-minutes="15">2️⃣ пр-т Ленина, 27 (15 мин)</button>
+            <button class="example-btn" data-address="ул. Свободы, 46" data-minutes="20">3️⃣ ул. Свободы, 46 (20 мин)</button>
+            <button class="example-btn" data-address="ул. Андропова, 8" data-minutes="30">4️⃣ ул. Андропова, 8 (30 мин)</button>
+            <button class="example-btn" data-address="Неверный адрес 999" data-minutes="15">5️⃣  НЕВЕРНЫЙ АДРЕС</button>
+        </div>
+
+        <div id="result" class="result-info">
+            <div style="text-align:center; opacity:0.7;">⬅️ Введите адрес и нажмите рассчитать</div>
+        </div>
+    </div>
+    <div id="map"></div>
+</div>
+
+<script>
+    const API_KEY = '4fae9145-ecc4-4c7c-b77e-944123094e45';
+    const GEOCODER_URL = 'https://catalog.api.2gis.com/3.0/items/geocode';
+    const ISOCHRONE_URL = `https://routing.api.2gis.com/isochrone/2.0.0?key=${API_KEY}`;
+    
+    let isCalculating = false;
+    
+    // ========== ГЕОХЕШ ==========
+    function computeGeohash(lat, lon, precision = 9) {
+        const BASE32 = "0123456789bcdefghjkmnpqrstuvwxyz";
+        let bits = 0, bitsTotal = 0, hashValue = 0, hash = "";
+        let latMin = -90, latMax = 90, lonMin = -180, lonMax = 180;
+        
+        while (hash.length < precision) {
+            if (bitsTotal % 2 === 0) {
+                const lonMid = (lonMin + lonMax) / 2;
+                if (lon > lonMid) {
+                    hashValue = (hashValue << 1) | 1;
+                    lonMin = lonMid;
+                } else {
+                    hashValue = (hashValue << 1) | 0;
+                    lonMax = lonMid;
+                }
+            } else {
+                const latMid = (latMin + latMax) / 2;
+                if (lat > latMid) {
+                    hashValue = (hashValue << 1) | 1;
+                    latMin = latMid;
+                } else {
+                    hashValue = (hashValue << 1) | 0;
+                    latMax = latMid;
+                }
+            }
+            bitsTotal++;
+            bits++;
+            if (bits === 5) {
+                hash += BASE32[hashValue];
+                bits = 0;
+                hashValue = 0;
+            }
+        }
+        return hash;
+    }
+    
+    // ========== ГЕОКОДИРОВАНИЕ ==========
+    async function geocodeAddress(address) {
+        const fullAddress = `Ярославль, ${address}`;
+        const params = new URLSearchParams({
+            key: API_KEY,
+            q: fullAddress,
+            fields: 'items.point,items.address_name',
+            page_size: 1
+        });
+        
+        const response = await fetch(`${GEOCODER_URL}?${params}`);
+        const data = await response.json();
+        
+        if (!data.result?.items || data.result.items.length === 0) {
+            throw new Error(` Адрес "${address}" не найден в Ярославле`);
+        }
+        
+        const item = data.result.items[0];
+        const foundAddress = item.address_name || item.name || address;
+        
+        const hasHouseNumber = /\d/.test(address);
+        const foundHasHouseNumber = /\d/.test(foundAddress);
+        
+        if (hasHouseNumber && !foundHasHouseNumber) {
+            throw new Error(` Адрес "${address}" не найден. Ближайший: "${foundAddress}"`);
+        }
+        
+        return { 
+            lat: item.point.lat, 
+            lon: item.point.lon,
+            displayName: foundAddress
+        };
+    }
+    
+    // ========== ПАРСЕР WKT в массив координат ==========
+    function parseWKTtoLatLngs(wkt) {
+        // Ищем содержимое между первыми (( и ))
+        const match = wkt.match(/\(\(([^()]+)\)\)/);
+        if (!match) return [];
+        
+        const pairs = match[1].split(',');
+        const coords = [];
+        
+        for (let pair of pairs) {
+            const trimmed = pair.trim();
+            const spaceIndex = trimmed.lastIndexOf(' ');
+            if (spaceIndex === -1) continue;
+            
+            const lon = parseFloat(trimmed.substring(0, spaceIndex));
+            const lat = parseFloat(trimmed.substring(spaceIndex + 1));
+            
+            if (!isNaN(lat) && !isNaN(lon)) {
+                coords.push([lat, lon]); // Leaflet нужен [lat, lon]
+            }
+        }
+        
+        return coords;
+    }
+    
+    // ========== ИЗОХРОНА (2ГИС) ==========
+    async function getIsochrone(lat, lon, minutes, retryCount = 0) {
+        const durationSeconds = minutes * 60;
+        
+        const payload = {
+            durations: [durationSeconds],
+            start: { lat, lon },
+            transport: 'walking',
+            detailing: 0.5,
+            smoothing: 1
+        };
+        
+        const response = await fetch(ISOCHRONE_URL, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+        
+        // Обработка ошибки 429 (Too Many Requests)
+        if (response.status === 429 && retryCount < 3) {
+            const waitTime = (retryCount + 1) * 2000;
+            console.log(`Превышен лимит, повтор через ${waitTime/1000} сек...`);
+            await new Promise(resolve => setTimeout(resolve, waitTime));
+            return getIsochrone(lat, lon, minutes, retryCount + 1);
+        }
+        
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+        
+        const data = await response.json();
+        console.log('Ответ изохроны:', data);
+        
+        if (data.isochrones && data.isochrones.length > 0 && data.isochrones[0].geometry) {
+            const wktString = data.isochrones[0].geometry;
+            const points = parseWKTtoLatLngs(wktString);
+            if (points.length > 0) {
+                return {
+                    type: "Polygon",
+                    coordinates: [points]
+                };
+            }
+        }
+        
+        throw new Error('Не удалось построить изохрону');
+    }
+    
+    // ========== КАРТА ==========
+    const map = L.map('map').setView([57.626, 39.893], 13);
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
+        attribution: '&copy; OSM | 2ГИС'
+    }).addTo(map);
+    
+    let currentZone = null, currentMarker = null;
+    
+    async function calculateDeliveryZone() {
+        if (isCalculating) return;
+        
+        const address = document.getElementById('address').value.trim();
+        const minutes = parseInt(document.getElementById('minutes').value);
+        const resultDiv = document.getElementById('result');
+        const calcBtn = document.getElementById('calcBtn');
+        
+        if (!address) {
+            resultDiv.innerHTML = '<div class="error"> Введите адрес</div>';
+            return;
+        }
+        
+        isCalculating = true;
+        calcBtn.disabled = true;
+        calcBtn.textContent = ' Загрузка...';
+        resultDiv.innerHTML = '<div style="text-align:center;"> Поиск адреса...</div>';
+        
+        try {
+            const location = await geocodeAddress(address);
+            const geohashValue = computeGeohash(location.lat, location.lon, 9);
+            
+            resultDiv.innerHTML = '<div style="text-align:center;"> Построение зоны доставки...</div>';
+            
+            const isochrone = await getIsochrone(location.lat, location.lon, minutes);
+            
+            if (currentZone) map.removeLayer(currentZone);
+            if (currentMarker) map.removeLayer(currentMarker);
+            
+            currentMarker = L.marker([location.lat, location.lon])
+                .bindPopup(`<b>🍕 ${location.displayName}</b><br> ${minutes} мин<br> ${geohashValue}`)
+                .addTo(map);
+            
+            const latlngs = isochrone.coordinates[0];
+            currentZone = L.polygon(latlngs, {
+                color: '#e67e22',
+                weight: 3,
+                fillColor: '#e67e22',
+                fillOpacity: 0.25
+            }).addTo(map);
+            
+            map.fitBounds(currentZone.getBounds());
+            
+            resultDiv.innerHTML = `
+                <div class="success"> Зона доставки рассчитана!</div>
+                <hr>
+                <div><b> Ресторан:</b><br>${location.displayName}</div>
+                <div><b> Координаты:</b><br>${location.lat.toFixed(5)}, ${location.lon.toFixed(5)}</div>
+                <div><b> Геохеш:</b><br><span class="geohash-badge">${geohashValue}</span></div>
+                <div><b> Время доставки:</b><br>${minutes} минут пешком</div>
+                <div><b> Зона:</b><br> Реальная изохрона (2ГИС)</div>
+                <hr>
+                <div style="font-size:0.7rem;"> Геокодирование: 2ГИС |  Изохрона: 2ГИС</div>
+            `;
+        } catch (error) {
+            console.error('Ошибка:', error);
+            resultDiv.innerHTML = `<div class="error"> ${error.message}</div>`;
+            if (currentZone) map.removeLayer(currentZone);
+            if (currentMarker) map.removeLayer(currentMarker);
+        } finally {
+            isCalculating = false;
+            calcBtn.disabled = false;
+            calcBtn.textContent = ' Рассчитать зону доставки';
+        }
+    }
+    
+    document.getElementById('calcBtn').addEventListener('click', calculateDeliveryZone);
+    document.querySelectorAll('.example-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            document.getElementById('address').value = btn.dataset.address;
+            document.getElementById('minutes').value = btn.dataset.minutes;
+            calculateDeliveryZone();
+        });
+    });
+    
+    setTimeout(() => calculateDeliveryZone(), 500);
+</script>
+</body>
+</html>
